@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <title>Blackjack Casino Pro</title>
+    <style>
+        body {
+            background-color: #1a1a1a;
+            color: white;
+            font-family: 'Segoe UI', Tahoma, sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            margin: 0;
+        }
+
+        .casino-table {
+            background: radial-gradient(circle, #0a5d34 0%, #053d22 100%);
+            width: 90%;
+            max-width: 800px;
+            padding: 30px;
+            border: 10px solid #3d2b1f;
+            border-radius: 50px;
+            box-shadow: 0 20px 50px rgba(0,0,0,0.7);
+            text-align: center;
+        }
+
+        .stats-bar {
+            background: rgba(0,0,0,0.5);
+            padding: 15px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+        }
+
+        .hand {
+            display: flex;
+            justify-content: center;
+            min-height: 150px;
+            margin: 10px 0;
+        }
+
+        .hand img {
+            width: 100px;
+            height: auto;
+            margin-left: -40px; 
+            filter: drop-shadow(3px 3px 5px rgba(0,0,0,0.5));
+        }
+
+        .hand img:first-child { margin-left: 0; }
+
+        #status {
+            font-size: 1.5rem;
+            color: #f1c40f;
+            margin: 15px 0;
+            font-weight: bold;
+            height: 35px;
+        }
+
+        button {
+            padding: 10px 20px;
+            cursor: pointer;
+            border: none;
+            border-radius: 5px;
+            font-weight: bold;
+            margin: 5px;
+            transition: 0.2s;
+        }
+
+        #btn-apostar { background: #f1c40f; color: black; }
+        #btn-hit { background: #27ae60; color: white; }
+        #btn-stand { background: #e74c3c; color: white; }
+        
+        button:disabled { background: #7f8c8d !important; opacity: 0.5; cursor: not-allowed; }
+        input { padding: 8px; border-radius: 5px; border: none; width: 100px; text-align: center; }
+    </style>
+</head>
+<body>
+
+    <div class="casino-table">
+        <div class="stats-bar">
+            Saldo: R$ <span id="saldo-val">100000</span> | 
+            <input type="number" id="bet-input" placeholder="R$ Aposta" value="10">
+            <button onclick="fazerAposta()" id="btn-apostar">Apostar</button>
+        </div>
+
+        <div class="area">
+            <h2>Dealer: <span id="score-dealer">0</span></h2>
+            <div id="cartas-dealer" class="hand"></div>
+        </div>
+
+        <div id="status">Faça sua aposta!</div>
+
+        <div class="area">
+            <div id="cartas-jogador" class="hand"></div>
+            <h2>Você: <span id="score-jogador">0</span></h2>
+        </div>
+
+        <div class="controls">
+            <button onclick="pedirCarta()" id="btn-hit" disabled>Pedir Carta</button>
+            <button onclick="parar()" id="btn-stand" disabled>Parar</button>
+            <button onclick="reiniciar()">Novo Baralho</button>
+        </div>
+    </div>
+
+    <script>
+        let deckId = '';// Guarda o código secreto do baralho que a internet vai mandar pra gente
+        let pontosJogador = 0; // Quantos pontos você tem acumulados na rodada atual
+        let pontosDealer = 0; // Quantos pontos o computador (dealer) tem acumulados na rodada
+        let saldo = 100000; // O seu dinheiro total para jogar no cassino
+        let apostaAtual = 0; //Quanto dinheiro você colocou em jogo na rodada da vez
+
+        async function iniciarJogo() { //Função que prepara tudo quando você abre a página
+            const response = await fetch('https://deckofcardsapi.com/api/deck/new/shuffle/?deck_count=1'); // Vai num site de cartas e pede um baralho novinho e bem embaralhado
+            const data = await response.json(); // Pega a resposta desse site e transforma em um formato que o código entende
+            deckId = data.deck_id; // Salva o código desse baralho para usarmos toda vez que alguém pedir uma carta
+            console.log("Baralho pronto!"); // Avisa lá no cantinho do desenvolvedor que deu tudo certo
+        }
+
+        function converterValor(valor) { // Função para descobrir quantos pontos vale cada carta que sair
+            if (valor === "JACK" || valor === "QUEEN" || valor === "KING") return 10; // Se for Valete, Dama ou Rei, vale 10 pontos
+            if (valor === "ACE") return 11; // Se for o Ás, por enquanto ele vai valer 11 pontos
+            return parseInt(valor); // Se for uma carta de número (tipo 2, 5, 10), ela vale o próprio número dela
+        } // Fim da conversão de pontos
+        
+
+        function fazerAposta() { // Essa função roda assim que você clica no botão amarelão de "Apostar"
+            const input = document.getElementById('bet-input'); // Acha a caixinha de texto onde você digita o valor
+            const valorAposta = parseInt(input.value); // Pega o número que você digitou lá dentro
+
+            if (isNaN(valorAposta) || valorAposta <= 0 || valorAposta > saldo) { // Se você não digitou nada, colocou zero, valor negativo ou tentou apostar mais do que tem...
+                alert("Aposta inválida ou saldo insuficiente!"); // Mostra um aviso na tela dizendo que não vai dar pra jogar assim
+                return;
+            }
+
+            // --- CORREÇÃO: RESETAR TUDO PARA A NOVA RODADA ---
+            pontosJogador = 0; // Zera os seus pontos porque a rodada está começando do absoluto zero
+            pontosDealer = 0; // Zera os pontos do computador também para ficar justo
+            document.getElementById('cartas-jogador').innerHTML = '';  // Limpa as imagens das cartas antigas da sua mesa
+            document.getElementById('cartas-dealer').innerHTML = '';  // Limpa as imagens das cartas antigas da mesa do computador
+            document.getElementById('score-jogador').innerText = '0';  // Zera o textinho do seu placar na tela
+            document.getElementById('score-dealer').innerText = '0';  // Zera o textinho do placar do computador na tela
+            // ------------------------------------------------
+
+            apostaAtual = valorAposta;  // Guarda o dinheiro que você aceitou apostar nessa rodada
+            saldo -= apostaAtual;  // Arranca esse dinheiro do seu bolso virtual (saldo total)
+            
+            document.getElementById('saldo-val').innerText = saldo;  // Atualiza o seu saldo na tela para você ver o desfalque
+            document.getElementById('btn-hit').disabled = false;  // Acende o botão "Pedir Carta" para você poder jogar
+            document.getElementById('btn-stand').disabled = false;  // Acende o botão "Parar" para você poder encerrar quando quiser
+            document.getElementById('btn-apostar').disabled = true;  // Apaga o botão de apostar para você não clicar sem querer no meio do jogo
+            document.getElementById('status').innerText = "Boa sorte!";  // Muda a mensagem do meio desejando uma boa partida
+        }
+
+        async function pedirCarta() { // Roda quando você clica no botão verdinho de "Pedir Carta"
+            const response = await fetch(`https://deckofcardsapi.com/api/deck/${deckId}/draw/?count=1`); // Vai lá na internet e puxa 1 carta daquele nosso baralho salvo
+            const data = await response.json(); // Transforma a carta que chegou em algo que o código consiga ler
+            const carta = data.cards[0]; // Pega os detalhes específicos dessa carta que veio (nome e imagem)
+
+            pontosJogador += converterValor(carta.value); // Descobre quanto a carta vale e soma nos seus pontos atuai
+            document.getElementById('cartas-jogador').innerHTML += `<img src="${carta.image}">`; // Desenha a imagem da carta na sua parte da mesa
+            document.getElementById('score-jogador').innerText = pontosJogador; // Mostra o seu novo total de pontos na tela
+
+            if (pontosJogador > 21) { // Se você se empolgou e a soma passou de 21 pontos...
+                finalizar("Você estourou!"); // Perdeu! Ativa a função de fim de jogo avisando que você passou do limite
+            } // Fim da checagem de estouro   
+            }
+        
+
+        async function parar() { // Roda quando você cansa de pedir carta e clica no botão vermelho "Parar"
+            document.getElementById('btn-hit').disabled = true; // Desliga o botão de pedir carta para você não trapacear
+            document.getElementById('btn-stand').disabled = true; // Desliga o botão de parar porque você já parou
+
+            while (pontosDealer < 17) {  // Enquanto o computador tiver menos de 17 pontos, ele é obrigado a continuar comprando
+                const response = await fetch(`https://deckofcardsapi.com/api/deck/${deckId}/draw/?count=1`); // Puxa uma carta da internet para o computador
+                const data = await response.json(); // Traduz as informações da carta que o computador pegou
+                const carta = data.cards[0]; // Separa os detalhes dessa carta do computador
+                pontosDealer += converterValor(carta.value); // Soma o valor dessa carta nos pontos do computador
+                document.getElementById('cartas-dealer').innerHTML += `<img src="${carta.image}">`; // Mostra a imagem da carta na mesa do computador
+                document.getElementById('score-dealer').innerText = pontosDealer; // Atualiza o placar do computador na tela
+            }
+
+            if (pontosDealer > 21 || pontosJogador > pontosDealer) { // Se o computador passou de 21 ou se você fez mais pontos que ele...
+                saldo += apostaAtual * 2; // Você ganha! O jogo te devolve o que apostou e te dá o dobro de prêmio
+                finalizar("Você Ganhou!"); // Encerra a rodada com festa e avisa que a vitória é sua
+            } else if (pontosDealer === pontosJogador) { // Se no final das contas vocês terminaram com a mesma pontuação...
+                saldo += apostaAtual;  // Dá empate! O cassino devolve exatamente a grana que você apostou para o seu saldo
+                finalizar("Empate!");   // Encerra a rodada avisando que ninguém ganhou e ninguém perdeu
+            } else {  // Se o computador fez mais pontos que você e não passou de 21...
+                finalizar("Dealer Ganhou!"); // Você perdeu a grana! Encerra avisando que a casa levou a melhor dessa vez
+            }
+        }
+
+        function finalizar(msg) { // Função curinga que limpa e arruma a bagunça assim que a rodada acaba
+            document.getElementById('status').innerText = msg;  // Mostra na tela a mensagem final de quem ganhou ou perdeu
+            document.getElementById('saldo-val').innerText = saldo;  // Atualiza a sua carteira de dinheiro na tela com o novo valor
+            document.getElementById('btn-hit').disabled = true;  // Deixa o botão de pedir carta apagado até a próxima rodada
+            document.getElementById('btn-stand').disabled = true;  // Deixa o botão de parar apagado até a próxima rodada
+            document.getElementById('btn-apostar').disabled = false; // Acende de novo o botão de apostar para você começar outro jogo se quiser
+            apostaAtual = 0; // Zera para a próxima rodada
+        }
+
+        function reiniciar() {  // Se as coisas derem muito errado ou você quiser um baralho limpo...
+            location.reload();   // Recarrega a página inteira do navegador do zero, como se estivesse abrindo o site agora
+        }
+
+        iniciarJogo(); // Executa o jogo de verdade assim que a página termina de carregar no seu navegador
+    </script>
+</body>
+</html>
